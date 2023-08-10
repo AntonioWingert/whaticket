@@ -20,7 +20,8 @@ import {
 	TextField,
 	InputAdornment,
 	IconButton,
-	Avatar
+	Avatar,
+	Input
 } from '@material-ui/core';
 
 import { Visibility, VisibilityOff } from '@material-ui/icons';
@@ -69,22 +70,47 @@ const useStyles = makeStyles(theme => ({
 		flexWrap: "wrap",
 		alignItems: "center",
 		justifyContent: "space-around",
-		backgroundColor: '#f5f5f5',
 	},
 	avatar: {
-		width: theme.spacing(10),
-		height: theme.spacing(10),
+		width: theme.spacing(12),
+		height: theme.spacing(12),
+		margin: theme.spacing(2),
+		cursor: 'pointer',
+		borderRadius: '50%',
+		border: '2px solid #ccc',
+	},
+	updateDiv: {
+		display: 'flex',
+		flexDirection: 'column',
+		alignItems: 'center',
+		justifyContent: 'center',
+	},
+	updateInput: {
+		display: 'none',
+	},
+	updateLabel: {
+		padding: theme.spacing(1),
 		margin: theme.spacing(1),
+		textTransform: 'uppercase',
+		textAlign: 'center',
+		cursor: 'pointer',
+		border: '2px solid #ccc',
+		borderRadius: '5px',
+		minWidth: 160,
+		fontWeight: 'bold',
+		color: '#555',
+	},
+	errorUpdate: {
+		border: '2px solid red',
+	},
+	errorText: {
+		color: 'red',
+		fontSize: '0.8rem',
+		fontWeight: 'bold',
 	}
 }));
 
-const SUPPORTED_FORMATS = { image: ['jpg', 'gif', 'png', 'jpeg', 'svg', 'webp'] };
-
-const MAX_FILE_SIZE = 16000;
-
-function isValidFileType(fileName, fileType) {
-  return fileName && SUPPORTED_FORMATS[fileType].indexOf(fileName.split('.').pop()) > -1;
-}
+const SUPPORTED_FORMATS = ['image/jpg', 'image/jpeg', 'image/png'];
 
 const UserSchema = Yup.object().shape({
 	name: Yup.string()
@@ -93,8 +119,14 @@ const UserSchema = Yup.object().shape({
 		.required("Required"),
 	password: Yup.string().min(5, "Too Short!").max(50, "Too Long!"),
 	email: Yup.string().email("Invalid email").required("Required"),
-	profileImage: Yup.mixed().test('fileType', 'Unsupported File Format', value => isValidFileType(value && value.name.toLowerCase(), 'image'))
-	.test('fileSize', 'File too large', value => value && value.size <= MAX_FILE_SIZE)
+	profileImageData: Yup.mixed()
+		.nullable()
+		.test('fileType', 'Unsupported File Format', value => {
+			return value && SUPPORTED_FORMATS.includes(value.type)
+		})
+		.test('fileSize', 'File too large, max 2mb', value => {
+			return value && value.size <= 2 * 1024 * 1024
+		})
 });
 
 const UserModal = ({ open, onClose, userId }) => {
@@ -105,7 +137,8 @@ const UserModal = ({ open, onClose, userId }) => {
 		email: "",
 		password: "",
 		profile: "user",
-		profileImage: "",
+		profileImage: null,
+		profileImageData: null,
 	};
 
 	const { user: loggedInUser } = useContext(AuthContext);
@@ -155,10 +188,30 @@ const UserModal = ({ open, onClose, userId }) => {
 		handleClose();
 	};
 
+	const handleUpdateProfileImage = (e) => {
+		if (!e.target.files[0]) {
+			return setUser(prevState => ({
+				...prevState,
+				profileImageData: null,
+				profileImage: null
+			}
+			));
+		};
+
+		if (userId) {
+			return setUser(prevState => ({
+				...prevState,
+				profileImageData: e.target.files[0],
+				profileImage: URL.createObjectURL(e.target.files[0])
+			}
+			));
+		}
+	};
+
 	return (
 		<div className={classes.root}>
 			<Dialog
-				open={true} //open
+				open={open} 
 				onClose={handleClose}
 				scroll="paper"
 				maxWidth={"md"}
@@ -183,19 +236,43 @@ const UserModal = ({ open, onClose, userId }) => {
 					{({ touched, errors, isSubmitting }) => (
 						<Form>
 							<DialogContent dividers className={classes.formDiv}>
-								<div style={{display: 'flex', flexDirection: 'column'}}>
-									<Avatar
-										src={user.profileImage ? user.profileImage : whatsappIcon}
-										alt="profile-image"
-										variant="square"
-										className={classes.avatar}
-									/>
-									<Button
-										variant="contained"
-									>
-										Update
-									</Button>
-								</div>
+								<FormControl className={classes.updateDiv}>
+									<label htmlFor="profileImage">
+										<Avatar
+											src={user.profileImage ? user.profileImage : whatsappIcon}
+											alt="profile-image"
+											variant="square"
+											className={`${classes.avatar} ${touched.profileImageData && errors.profileImageData ? classes.errorUpdate : ''}`}
+										/>
+									</label>
+									<FormControl className={classes.updateDiv}>
+										<label htmlFor="profileImage"
+											className={`${classes.updateLabel} ${touched.profileImageData && errors.profileImageData ? classes.errorUpdate : ''}`}
+										>
+											{user.profileImage ? 'Atualizar Imagem' : 'Adicionar Imagem'}
+										</label>
+										{
+											touched.profileImageData && errors.profileImageData && (
+												<span className={classes.errorText}>{errors.profileImageData}</span>)
+										}
+										<Input
+											type="file"
+											name="profileImageData"
+											id="profileImage"
+											className={classes.updateInput}
+											onChange={event => handleUpdateProfileImage(event)}
+										/>
+									</FormControl>
+									{user.profileImage &&
+										<Button
+											variant="outlined"
+											color="secondary"
+											onClick={() => setUser(prevState => ({ ...prevState, profileImage: null, profileImageData: null }))}
+										>
+											Remover Imagem
+										</Button>
+									}
+								</FormControl>
 								<div>
 									<div className={classes.multFieldLine}>
 										<Field
