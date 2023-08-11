@@ -37,6 +37,7 @@ import QueueSelect from "../QueueSelect";
 import { AuthContext } from "../../context/Auth/AuthContext";
 import { Can } from "../Can";
 import useWhatsApps from "../../hooks/useWhatsApps";
+import { ProfileImageContext } from "../../context/ProfileImage/ProfileImageContext";
 
 const useStyles = makeStyles(theme => ({
 	root: {
@@ -119,12 +120,14 @@ const UserSchema = Yup.object().shape({
 		.required("Required"),
 	password: Yup.string().min(5, "Too Short!").max(50, "Too Long!"),
 	email: Yup.string().email("Invalid email").required("Required"),
-	profileImageData: Yup.mixed()
+	profileImage: Yup.mixed()
 		.nullable()
 		.test('fileType', 'Unsupported File Format', value => {
+			if (!value) return true
 			return value && SUPPORTED_FORMATS.includes(value.type)
 		})
 		.test('fileSize', 'File too large, max 2mb', value => {
+			if (!value) return true
 			return value && value.size <= 2 * 1024 * 1024
 		})
 });
@@ -137,8 +140,8 @@ const UserModal = ({ open, onClose, userId }) => {
 		email: "",
 		password: "",
 		profile: "user",
+		avatar: null,
 		profileImage: null,
-		profileImageData: null,
 	};
 
 	const { user: loggedInUser } = useContext(AuthContext);
@@ -148,15 +151,21 @@ const UserModal = ({ open, onClose, userId }) => {
 	const [showPassword, setShowPassword] = useState(false);
 	const [whatsappId, setWhatsappId] = useState(false);
 	const { loading, whatsApps } = useWhatsApps();
+	const { handleProfileImage, handleUser } = useContext(ProfileImageContext);
 
 	useEffect(() => {
 		const fetchUser = async () => {
 			if (!userId) return;
 			try {
 				const { data } = await api.get(`/users/${userId}`);
+				const { profileImage } = data;
+				const profileUrl = profileImage ? `http://localhost:8080/profilePics/${profileImage}` : null;
 				setUser(prevState => {
-					return { ...prevState, ...data };
+					return { ...prevState, ...data, avatar: profileUrl };
 				});
+
+				loggedInUser.profileImage = profileUrl;
+
 				const userQueueIds = data.queues?.map(queue => queue.id);
 				setSelectedQueueIds(userQueueIds);
 				setWhatsappId(data.whatsappId ? data.whatsappId : '');
@@ -168,18 +177,39 @@ const UserModal = ({ open, onClose, userId }) => {
 		fetchUser();
 	}, [userId, open]);
 
+	useEffect(() => {
+		handleUser(user);
+		handleProfileImage(user.avatar);
+	}, [user, handleUser, handleProfileImage]);
+
 	const handleClose = () => {
 		onClose();
 		setUser(initialState);
 	};
 
 	const handleSaveUser = async values => {
-		const userData = { ...values, whatsappId, queueIds: selectedQueueIds };
+		const formData = new FormData();
+		formData.append('profileImage', values.profileImage);
+		formData.append('name', values.name);
+		formData.append('email', values.email);
+		formData.append('password', values.password);
+		formData.append('profile', values.profile);
+		formData.append('avatar', values.avatar);
+		formData.append('whatsappId', whatsappId);
+		if (selectedQueueIds.length > 0) {
+			for (const id of selectedQueueIds) {
+				formData.append('queueIds[]', id);
+			}
+		} else {
+			formData.delete('queueIds[]');
+		}
+
 		try {
+
 			if (userId) {
-				await api.put(`/users/${userId}`, userData);
+				await api.put(`/users/${userId}`, formData);
 			} else {
-				await api.post("/users", userData);
+				await api.post("/users", formData);
 			}
 			toast.success(i18n.t("userModal.success"));
 		} catch (err) {
@@ -189,29 +219,19 @@ const UserModal = ({ open, onClose, userId }) => {
 	};
 
 	const handleUpdateProfileImage = (e) => {
-		if (!e.target.files[0]) {
-			return setUser(prevState => ({
-				...prevState,
-				profileImageData: null,
-				profileImage: null
-			}
-			));
-		};
+		if (!e.target.files[0]) return;
 
-		if (userId) {
-			return setUser(prevState => ({
-				...prevState,
-				profileImageData: e.target.files[0],
-				profileImage: URL.createObjectURL(e.target.files[0])
-			}
-			));
-		}
+		setUser(prevState => ({
+			...prevState,
+			avatar: URL.createObjectURL(e.target.files[0]),
+			profileImage: e.target.files[0]
+		}));
 	};
 
 	return (
 		<div className={classes.root}>
 			<Dialog
-				open={open} 
+				open={open}
 				onClose={handleClose}
 				scroll="paper"
 				maxWidth={"md"}
@@ -234,40 +254,39 @@ const UserModal = ({ open, onClose, userId }) => {
 					}}
 				>
 					{({ touched, errors, isSubmitting }) => (
-						<Form>
+						<Form encType="multipart/form-data">
 							<DialogContent dividers className={classes.formDiv}>
 								<FormControl className={classes.updateDiv}>
 									<label htmlFor="profileImage">
 										<Avatar
-											src={user.profileImage ? user.profileImage : whatsappIcon}
+											src={user.avatar ? user.avatar : whatsappIcon}
 											alt="profile-image"
-											variant="square"
-											className={`${classes.avatar} ${touched.profileImageData && errors.profileImageData ? classes.errorUpdate : ''}`}
+											className={`${classes.avatar} ${touched.profileImage && errors.profileImage ? classes.errorUpdate : ''}`}
 										/>
 									</label>
 									<FormControl className={classes.updateDiv}>
 										<label htmlFor="profileImage"
-											className={`${classes.updateLabel} ${touched.profileImageData && errors.profileImageData ? classes.errorUpdate : ''}`}
+											className={`${classes.updateLabel} ${touched.profileImage && errors.profileImage ? classes.errorUpdate : ''}`}
 										>
 											{user.profileImage ? 'Atualizar Imagem' : 'Adicionar Imagem'}
 										</label>
 										{
-											touched.profileImageData && errors.profileImageData && (
-												<span className={classes.errorText}>{errors.profileImageData}</span>)
+											touched.profileImage && errors.profileImage && (
+												<span className={classes.errorText}>{errors.profileImage}</span>)
 										}
 										<Input
 											type="file"
-											name="profileImageData"
+											name="profileImage"
 											id="profileImage"
 											className={classes.updateInput}
 											onChange={event => handleUpdateProfileImage(event)}
 										/>
 									</FormControl>
-									{user.profileImage &&
+									{user.avatar &&
 										<Button
 											variant="outlined"
 											color="secondary"
-											onClick={() => setUser(prevState => ({ ...prevState, profileImage: null, profileImageData: null }))}
+											onClick={() => setUser(prevState => ({ ...prevState, avatar: null, profileImage: null }))}
 										>
 											Remover Imagem
 										</Button>
